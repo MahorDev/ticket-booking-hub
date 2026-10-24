@@ -1,0 +1,84 @@
+server:
+  port: ${SERVER_PORT:8080}
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      default-filters:
+      - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_UNIQUE
+      globalcors:
+        add-to-simple-url-handler-mapping: true
+        corsConfigurations:
+          '[/**]':
+            allowedOriginPatterns: "*"
+            allowedMethods:
+            - GET
+            - POST
+            - PUT
+            - PATCH
+            - DELETE
+            - OPTIONS
+            allowedHeaders: "*"
+            exposedHeaders:
+            - X-Correlation-ID
+            - Location
+            allowCredentials: true
+      routes:
+      - id: user-service
+        uri: lb://user-service
+        predicates:
+        - Path=/api/users/**,/auth/register,/auth/user-login,/auth/google,/auth/google/**
+      - id: booking-service
+        uri: lb://booking-service
+        predicates:
+        - Path=/api/bookings/**,/api/booking-seats/**,/api/tickets/**,/api/shows/*/seats,/api/shows/*/seats/**
+      - id: event-service
+        uri: lb://event-service
+        predicates:
+        - Path=/api/events/**,/api/venues/**,/api/screens/**,/api/seats/**,/api/shows/**,/api/show-seats/**,/api/media/**
+      - id: payment-service
+        uri: lb://payment-service
+        predicates:
+        - Path=/api/payments/**
+      - id: notification-service
+        uri: lb://notification-service
+        predicates:
+        - Path=/api/notifications/**,/api/v1/notifications/**
+  config:
+    import: optional:configserver:${CONFIG_SERVER_URL:http://localhost:8888}
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URL:http://localhost:8761/eureka/}
+    register-with-eureka: true
+    fetch-registry: true
+  instance:
+    prefer-ip-address: true
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when_authorized
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLING_PROBABILITY:1.0}
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
+app:
+  jwt:
+    secret: ${JWT_SECRET:please-set-a-strong-secret-of-at-least-32-bytes}
+    expiration-ms: ${JWT_EXPIRATION_MS:3600000}
+  admin:
+    username: ${ADMIN_USERNAME:admin}
+    password: ${ADMIN_PASSWORD:admin123}
+  manager:
+    username: ${MANAGER_USERNAME:eventmanager}
+    password: ${MANAGER_PASSWORD:manager123}
+  customer:
+    username: ${CUSTOMER_USERNAME:customer}
+    password: ${CUSTOMER_PASSWORD:customer123}

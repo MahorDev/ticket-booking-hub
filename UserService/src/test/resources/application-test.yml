@@ -1,0 +1,33 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:tickethub_user_test_db;MODE=MySQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    open-in-view: false
+  flyway:
+    enabled: false
+  cloud:
+    config:
+      enabled: false
+    discovery:
+      enabled: false
+
+eureka:
+  client:
+    enabled: false
+    register-with-eureka: false
+    fetch-registry: false
+
+app:
+  jwt:
+    secret: test-jwt-secret-key-with-at-least-32-bytes-length
+    expiration-ms: 3600000
+  google:
+    client-id: test-google-client-id.apps.googleusercontent.com
+    client-secret: test-google-secret
+    redirect-uri: http://localhost:8080/auth/google/callback
+    verify-token: false

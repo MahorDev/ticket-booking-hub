@@ -1,0 +1,17 @@
+target/
+**/target/
+.idea/
+**/.idea/
+.env
+*.log
+.DS_Store
+uploads/
+**/uploads/
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+**/tfplan
+**/*.tfvars
+
+.env
+.DS_Store

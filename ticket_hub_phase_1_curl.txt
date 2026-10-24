@@ -1,0 +1,740 @@
+================================================================================
+TICKETHUB PHASE 1 — COMPLETE END-TO-END CURL COMMAND SPECIFICATION
+================================================================================
+Generated for TicketHub Distributed Microservices Architecture
+Date: October 2026
+Base URLs:
+  • Localhost (Laptop):  http://localhost:8080
+  • LAN Network (Phone / Other Laptops): http://10.10.21.86:8080
+    (Note: If your IP changes, simply replace 10.10.21.86 with your current IP)
+
+Quick Shell Variable Setup:
+  export GATEWAY="http://localhost:8080"       # For local
+  # export GATEWAY="http://10.10.21.86:8080"   # For remote laptop/phone on Wi-Fi
+
+================================================================================
+SECTION 1: SYSTEM HEALTH & SERVICE DISCOVERY
+================================================================================
+
+1.1 Check API Gateway & Microservices Health Probe
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X GET "http://localhost:8080/actuator/health"
+
+[NETWORK IP]
+curl -X GET "http://10.10.21.86:8080/actuator/health"
+
+
+1.2 Check Eureka Service Registry (Registered Microservices)
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X GET "http://localhost:8761/eureka/apps" -H "Accept: application/json"
+
+[NETWORK IP]
+curl -X GET "http://10.10.21.86:8761/eureka/apps" -H "Accept: application/json"
+
+
+================================================================================
+SECTION 2: AUTHENTICATION & IDENTITY (USER SERVICE)
+================================================================================
+
+2.1 Register a New Customer Account
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X POST "http://localhost:8080/auth/register" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "rohit_sharma",
+    "email": "rohit.sharma@example.com",
+    "password": "Password@123",
+    "fullName": "Rohit Sharma",
+    "phoneNumber": "+919876543210"
+  }'
+
+[NETWORK IP]
+curl -X POST "http://10.10.21.86:8080/auth/register" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "rohit_sharma",
+    "email": "rohit.sharma@example.com",
+    "password": "Password@123",
+    "fullName": "Rohit Sharma",
+    "phoneNumber": "+919876543210"
+  }'
+
+
+2.2 Login as Customer (Obtain JWT Bearer Token)
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X POST "http://localhost:8080/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "customer",
+    "password": "customer123"
+  }'
+
+[NETWORK IP]
+curl -X POST "http://10.10.21.86:8080/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "customer",
+    "password": "customer123"
+  }'
+
+* Shell Command to save Customer Token directly:
+export CUSTOMER_TOKEN=$(curl -s -X POST http://localhost:8080/auth/login -H "Content-Type: application/json" -d '{"username":"customer","password":"customer123"}' | grep -o '"token":"[^"]*' | cut -d'"' -f4)
+
+
+2.3 Login as Admin / Event Manager
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X POST "http://localhost:8080/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "admin",
+    "password": "admin123"
+  }'
+
+[NETWORK IP]
+curl -X POST "http://10.10.21.86:8080/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "admin",
+    "password": "admin123"
+  }'
+
+* Shell Command to save Admin Token directly:
+export ADMIN_TOKEN=$(curl -s -X POST http://localhost:8080/auth/login -H "Content-Type: application/json" -d '{"username":"admin","password":"admin123"}' | grep -o '"token":"[^"]*' | cut -d'"' -f4)
+
+
+================================================================================
+SECTION 3: VENUE & AUDITORIUM SCREEN MANAGEMENT
+================================================================================
+
+3.1 List All Cinema Venues
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X GET "http://localhost:8080/api/venues" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+[NETWORK IP]
+curl -X GET "http://10.10.21.86:8080/api/venues" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+
+3.2 Get Specific Venue by ID (e.g. Venue #10)
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X GET "http://localhost:8080/api/venues/10" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+[NETWORK IP]
+curl -X GET "http://10.10.21.86:8080/api/venues/10" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+
+3.3 Create a New Venue (Admin Only)
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X POST "http://localhost:8080/api/venues" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "PVR Superplex Mall of India",
+    "address": "Sector 18, Noida",
+    "city": "Noida",
+    "state": "Uttar Pradesh",
+    "country": "India"
+  }'
+
+[NETWORK IP]
+curl -X POST "http://10.10.21.86:8080/api/venues" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "PVR Superplex Mall of India",
+    "address": "Sector 18, Noida",
+    "city": "Noida",
+    "state": "Uttar Pradesh",
+    "country": "India"
+  }'
+
+
+3.4 Get Specific Screen by ID (e.g. Screen #10 — IMAX Laser)
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X GET "http://localhost:8080/api/screens/10" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+[NETWORK IP]
+curl -X GET "http://10.10.21.86:8080/api/screens/10" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+
+================================================================================
+SECTION 4: MOVIE & EVENT CATALOGUE MANAGEMENT
+================================================================================
+
+4.1 List All Published Movies (Paginated)
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X GET "http://localhost:8080/api/events?page=0&size=10" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+[NETWORK IP]
+curl -X GET "http://10.10.21.86:8080/api/events?page=0&size=10" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+
+4.2 Filter Movies by Language (Hindi, Telugu, Tamil, Malayalam, Kannada, English)
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X GET "http://localhost:8080/api/events?language=Telugu&page=0&size=10" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+[NETWORK IP]
+curl -X GET "http://10.10.21.86:8080/api/events?language=Telugu&page=0&size=10" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+
+4.3 Filter Movies by Genre (Sci-Fi, Drama, Action, Comedy, Romance, etc.)
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X GET "http://localhost:8080/api/events?genre=Sci-Fi&page=0&size=10" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+[NETWORK IP]
+curl -X GET "http://10.10.21.86:8080/api/events?genre=Sci-Fi&page=0&size=10" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+
+4.4 Search Movie by Title
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X GET "http://localhost:8080/api/events?title=Inception" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+[NETWORK IP]
+curl -X GET "http://10.10.21.86:8080/api/events?title=Inception" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+
+4.5 Get Specific Movie Details by ID (e.g. Inception #10 or RRR #62)
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X GET "http://localhost:8080/api/events/10" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+[NETWORK IP]
+curl -X GET "http://10.10.21.86:8080/api/events/10" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+
+4.6 Create a New Movie Event (Admin Only — Starts in DRAFT)
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X POST "http://localhost:8080/api/events" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Gladiator II",
+    "description": "Years after witnessing the death of Maximus, Lucius must enter the Colosseum to fight for the future of Rome.",
+    "eventType": "MOVIE",
+    "language": "English",
+    "duration": 150,
+    "rating": "A",
+    "genre": "Action"
+  }'
+
+[NETWORK IP]
+curl -X POST "http://10.10.21.86:8080/api/events" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Gladiator II",
+    "description": "Years after witnessing the death of Maximus, Lucius must enter the Colosseum to fight for the future of Rome.",
+    "eventType": "MOVIE",
+    "language": "English",
+    "duration": 150,
+    "rating": "A",
+    "genre": "Action"
+  }'
+
+
+4.7 Publish a Movie Event (Status: DRAFT -> PUBLISHED)
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X PATCH "http://localhost:8080/api/events/10/status" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "PUBLISHED"}'
+
+[NETWORK IP]
+curl -X PATCH "http://10.10.21.86:8080/api/events/10/status" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "PUBLISHED"}'
+
+
+================================================================================
+SECTION 5: SHOW SCHEDULES & SEATING INVENTORY
+================================================================================
+
+5.1 List All Shows Across All Theatres
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X GET "http://localhost:8080/api/shows?page=0&size=10" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+[NETWORK IP]
+curl -X GET "http://10.10.21.86:8080/api/shows?page=0&size=10" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+
+5.2 Get Available Shows for a Specific Movie (e.g. Inception #10)
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X GET "http://localhost:8080/api/events/10/shows" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+[NETWORK IP]
+curl -X GET "http://10.10.21.86:8080/api/events/10/shows" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+
+5.3 Get Show Details by ID (e.g. Show #100)
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X GET "http://localhost:8080/api/shows/100" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+[NETWORK IP]
+curl -X GET "http://10.10.21.86:8080/api/shows/100" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+
+5.4 Schedule a New Show for an Event & Screen (Admin Only)
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X POST "http://localhost:8080/api/shows" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "eventId": 10,
+    "screenId": 10,
+    "showDate": "2026-10-25",
+    "startTime": "18:00:00",
+    "endTime": "20:45:00",
+    "ticketPrice": 450.00,
+    "currency": "INR"
+  }'
+
+[NETWORK IP]
+curl -X POST "http://10.10.21.86:8080/api/shows" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "eventId": 10,
+    "screenId": 10,
+    "showDate": "2026-10-25",
+    "startTime": "18:00:00",
+    "endTime": "20:45:00",
+    "ticketPrice": 450.00,
+    "currency": "INR"
+  }'
+
+
+5.5 Open a Show for Public Booking (Status: SCHEDULED -> OPEN)
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X PATCH "http://localhost:8080/api/shows/100/status" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "OPEN"}'
+
+[NETWORK IP]
+curl -X PATCH "http://10.10.21.86:8080/api/shows/100/status" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "OPEN"}'
+
+
+5.6 Get Real-Time Tiered Seat Map (Lower, Middle, Upper Availability)
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X GET "http://localhost:8080/api/shows/100/seats" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+[NETWORK IP]
+curl -X GET "http://10.10.21.86:8080/api/shows/100/seats" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+
+================================================================================
+SECTION 6: SEAT RESERVATION & 10-MINUTE LOCK WINDOW
+================================================================================
+
+6.1 Lock Selected Seats (Temporary 10-Minute Hold)
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X POST "http://localhost:8080/api/shows/100/seats/lock" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "showId": 100,
+    "userId": 101,
+    "seatIds": [1000]
+  }'
+
+[NETWORK IP]
+curl -X POST "http://10.10.21.86:8080/api/shows/100/seats/lock" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "showId": 100,
+    "userId": 101,
+    "seatIds": [1000]
+  }'
+
+
+6.2 Release Locked Seats (If Customer Unchecks or Abandons Selection)
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X POST "http://localhost:8080/api/shows/100/seats/release" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "showId": 100,
+    "userId": 101,
+    "seatIds": [1000]
+  }'
+
+[NETWORK IP]
+curl -X POST "http://10.10.21.86:8080/api/shows/100/seats/release" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "showId": 100,
+    "userId": 101,
+    "seatIds": [1000]
+  }'
+
+
+================================================================================
+SECTION 7: BOOKING ENGINE (BOOKING SERVICE)
+================================================================================
+
+7.1 Create a Booking (Status: PENDING_PAYMENT, Price Snapshot & Idempotency)
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X POST "http://localhost:8080/api/bookings" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: bkg-key-100-$(date +%s)" \
+  -d '{
+    "showId": 100,
+    "seatIds": [1000],
+    "userId": 101,
+    "customerEmail": "customer@tickethub.com",
+    "customerName": "TicketHub Customer"
+  }'
+
+[NETWORK IP]
+curl -X POST "http://10.10.21.86:8080/api/bookings" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: bkg-key-100-$(date +%s)" \
+  -d '{
+    "showId": 100,
+    "seatIds": [1000],
+    "userId": 101,
+    "customerEmail": "customer@tickethub.com",
+    "customerName": "TicketHub Customer"
+  }'
+
+
+7.2 Get Booking Details by ID (e.g. Booking #84)
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X GET "http://localhost:8080/api/bookings/84" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+[NETWORK IP]
+curl -X GET "http://10.10.21.86:8080/api/bookings/84" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+
+7.3 Get Authenticated Customer's Booking History
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X GET "http://localhost:8080/api/bookings/my" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+[NETWORK IP]
+curl -X GET "http://10.10.21.86:8080/api/bookings/my" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+
+7.4 Cancel Booking (Releases Seats & Marks Booking CANCELLED)
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X POST "http://localhost:8080/api/bookings/84/cancel" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+[NETWORK IP]
+curl -X POST "http://10.10.21.86:8080/api/bookings/84/cancel" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+
+================================================================================
+SECTION 8: PAYMENT GATEWAY & RAZORPAY (PAYMENT SERVICE)
+================================================================================
+
+8.1 Create Payment Order (Initiates Razorpay Order with Trusted Booking Amount)
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X POST "http://localhost:8080/api/payments" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "bookingId": 84,
+    "amount": 250.00,
+    "currency": "INR",
+    "paymentMethod": "UPI",
+    "idempotencyKey": "pay-key-84-$(date +%s)"
+  }'
+
+[NETWORK IP]
+curl -X POST "http://10.10.21.86:8080/api/payments" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "bookingId": 84,
+    "amount": 250.00,
+    "currency": "INR",
+    "paymentMethod": "UPI",
+    "idempotencyKey": "pay-key-84-$(date +%s)"
+  }'
+
+
+8.2 Confirm / Verify Successful Payment (Triggers Confirmation & Ticket Creation)
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X POST "http://localhost:8080/api/payments/41/confirm" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "razorpayOrderId": "order_To3FkOjUQom1bI",
+    "razorpayPaymentId": "pay_live_test_123"
+  }'
+
+[NETWORK IP]
+curl -X POST "http://10.10.21.86:8080/api/payments/41/confirm" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "razorpayOrderId": "order_To3FkOjUQom1bI",
+    "razorpayPaymentId": "pay_live_test_123"
+  }'
+
+
+8.3 Get Payment Details by Payment ID
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X GET "http://localhost:8080/api/payments/41" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+[NETWORK IP]
+curl -X GET "http://10.10.21.86:8080/api/payments/41" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+
+8.4 Get Payment Record by Booking ID
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X GET "http://localhost:8080/api/payments/booking/84" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+[NETWORK IP]
+curl -X GET "http://10.10.21.86:8080/api/payments/booking/84" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+
+================================================================================
+SECTION 9: PAYMENT GATEWAY WEBHOOK (ASYNC CONFIRMATION / REVERSAL)
+================================================================================
+
+9.1 Send Signed Razorpay Webhook Event: payment.captured
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X POST "http://localhost:8080/api/payments/webhook" \
+  -H "Content-Type: application/json" \
+  -H "X-Razorpay-Event-Id: evt_captured_$(date +%s)" \
+  -d '{
+    "event": "payment.captured",
+    "payload": {
+      "payment": {
+        "entity": {
+          "id": "pay_webhook_demo_01",
+          "order_id": "order_To3FkOjUQom1bI",
+          "amount": 25000,
+          "currency": "INR",
+          "status": "captured"
+        }
+      }
+    }
+  }'
+
+[NETWORK IP]
+curl -X POST "http://10.10.21.86:8080/api/payments/webhook" \
+  -H "Content-Type: application/json" \
+  -H "X-Razorpay-Event-Id: evt_captured_$(date +%s)" \
+  -d '{
+    "event": "payment.captured",
+    "payload": {
+      "payment": {
+        "entity": {
+          "id": "pay_webhook_demo_01",
+          "order_id": "order_To3FkOjUQom1bI",
+          "amount": 25000,
+          "currency": "INR",
+          "status": "captured"
+        }
+      }
+    }
+  }'
+
+
+9.2 Send Razorpay Webhook Event: payment.failed (Auto-releases seat locks)
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X POST "http://localhost:8080/api/payments/webhook" \
+  -H "Content-Type: application/json" \
+  -H "X-Razorpay-Event-Id: evt_failed_$(date +%s)" \
+  -d '{
+    "event": "payment.failed",
+    "payload": {
+      "payment": {
+        "entity": {
+          "id": "pay_failed_demo_02",
+          "order_id": "order_To3FkOjUQom1bI",
+          "amount": 25000,
+          "currency": "INR",
+          "status": "failed"
+        }
+      }
+    }
+  }'
+
+[NETWORK IP]
+curl -X POST "http://10.10.21.86:8080/api/payments/webhook" \
+  -H "Content-Type: application/json" \
+  -H "X-Razorpay-Event-Id: evt_failed_$(date +%s)" \
+  -d '{
+    "event": "payment.failed",
+    "payload": {
+      "payment": {
+        "entity": {
+          "id": "pay_failed_demo_02",
+          "order_id": "order_To3FkOjUQom1bI",
+          "amount": 25000,
+          "currency": "INR",
+          "status": "failed"
+        }
+      }
+    }
+  }'
+
+
+================================================================================
+SECTION 10: E-TICKETS & EMAIL NOTIFICATIONS
+================================================================================
+
+10.1 Get Active E-Ticket with QR Code by Booking ID
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X GET "http://localhost:8080/api/bookings/84/ticket" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+[NETWORK IP]
+curl -X GET "http://10.10.21.86:8080/api/bookings/84/ticket" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+
+
+10.2 Verify Delivered Email in Mailpit (Local SMTP Server) via API
+--------------------------------------------------------------------------------
+[LOCAL]
+curl -X GET "http://localhost:8025/api/v1/messages"
+
+[NETWORK IP]
+curl -X GET "http://10.10.21.86:8025/api/v1/messages"
+
+* View in Browser:
+  - Localhost: http://localhost:8025
+  - On Phone/LAN: http://10.10.21.86:8025
+
+
+================================================================================
+SECTION 11: FULL CUSTOMER BOOKING JOURNEY (ONE-LINER AUTOMATED SCRIPT)
+================================================================================
+Copy and paste this entire block in your terminal to run the complete end-to-end flow:
+
+```bash
+GATEWAY="http://localhost:8080"
+# For testing from another laptop on LAN, uncomment this line:
+# GATEWAY="http://10.10.21.86:8080"
+
+echo "1. Authenticating as Customer..."
+TOKEN=$(curl -s -X POST "$GATEWAY/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"customer","password":"customer123"}' | grep -o '"token":"[^"]*' | cut -d'"' -f4)
+echo "   Token: ${TOKEN:0:30}..."
+
+echo "2. Finding available seat for Show #100..."
+SEAT_ID=$(curl -s "$GATEWAY/api/shows/100/seats" -H "Authorization: Bearer $TOKEN" | \
+  python3 -c "import sys, json; s=[x['seatId'] for x in json.load(sys.stdin).get('data', []) if x['status']=='AVAILABLE']; print(s[0] if s else '')")
+echo "   Selected Available Seat: $SEAT_ID"
+
+echo "3. Locking seat for 10 minutes..."
+curl -s -X POST "$GATEWAY/api/shows/100/seats/lock" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"showId\": 100, \"userId\": 101, \"seatIds\": [$SEAT_ID]}" > /dev/null
+echo "   Seat $SEAT_ID locked successfully."
+
+echo "4. Creating Booking..."
+IDEM_KEY="run-$(date +%s)-$RANDOM"
+BKG_RESP=$(curl -s -X POST "$GATEWAY/api/bookings" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: $IDEM_KEY" \
+  -d "{\"showId\": 100, \"seatIds\": [$SEAT_ID], \"userId\": 101, \"customerEmail\": \"customer@tickethub.com\", \"customerName\": \"TicketHub Customer\"}")
+BKG_ID=$(echo "$BKG_RESP" | grep -o '"bookingId":[0-9]*' | cut -d':' -f2)
+echo "   Booking created with ID: $BKG_ID"
+
+echo "5. Initiating Payment..."
+PAY_RESP=$(curl -s -X POST "$GATEWAY/api/payments" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"bookingId\": $BKG_ID, \"amount\": 250.00, \"currency\": \"INR\", \"paymentMethod\": \"UPI\", \"idempotencyKey\": \"pay-$IDEM_KEY\"}")
+PAY_ID=$(echo "$PAY_RESP" | grep -o '"paymentId":[0-9]*' | cut -d':' -f2)
+ORDER_ID=$(echo "$PAY_RESP" | grep -o '"razorpayOrderId":"[^"]*' | cut -d'"' -f4)
+echo "   Payment initiated with ID: $PAY_ID, Order: $ORDER_ID"
+
+echo "6. Confirming Payment..."
+curl -s -X POST "$GATEWAY/api/payments/$PAY_ID/confirm" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"razorpayOrderId\": \"$ORDER_ID\", \"razorpayPaymentId\": \"pay_sim_$(date +%s)\"}" > /dev/null
+echo "   Payment confirmed successfully."
+
+echo "7. Retrieving Confirmed Ticket..."
+TICKET=$(curl -s "$GATEWAY/api/bookings/$BKG_ID/ticket" -H "Authorization: Bearer $TOKEN")
+echo "   Ticket Details:"
+echo "$TICKET" | python3 -m json.tool
+
+echo "8. Customer Journey Completed 100% Successfully!"
+```
+================================================================================
+END OF SPECIFICATION FILE
+================================================================================

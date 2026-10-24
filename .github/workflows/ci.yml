@@ -1,0 +1,42 @@
+name: TicketHub CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  build-and-test:
+    name: Build & Verify All Microservices
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Compile and Run All Unit & Integration Tests
+        run: mvn -B --no-transfer-progress clean verify
+
+      - name: Validate Docker Compose Configurations
+        run: |
+          docker compose config --quiet
+          docker compose --profile observability config --quiet
+          docker compose --profile auth config --quiet
+
+      - name: Build Docker Container Images
+        run: |
+          docker compose build --parallel
+
+      - name: Upload Test Reports Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: '**/target/surefire-reports/'
+          if-no-files-found: ignore

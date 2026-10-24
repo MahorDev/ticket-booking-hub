@@ -1,0 +1,33 @@
+# TicketHub RDS Production Profile Configuration
+spring:
+  datasource:
+    hikari:
+      maximum-pool-size: 25
+      minimum-idle: 5
+      idle-timeout: 300000
+      max-lifetime: 1800000
+      connection-timeout: 30000
+      leak-detection-threshold: 60000
+      pool-name: TicketHub-RDS-HikariPool
+      data-source-properties:
+        cachePrepStmts: true
+        prepStmtCacheSize: 250
+        prepStmtCacheSqlLimit: 2048
+        useServerPrepStmts: true
+        useLocalSessionState: true
+        rewriteBatchedStatements: true
+        cacheResultSetMetadata: true
+        cacheServerConfiguration: true
+        elideSetAutoCommits: true
+        maintainTimeStats: false
+        useSSL: true
+        requireSSL: true
+        sslMode: REQUIRED
+  jpa:
+    properties:
+      hibernate:
+        jdbc:
+          batch_size: 25
+          order_inserts: true
+          order_updates: true
+

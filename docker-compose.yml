@@ -1,0 +1,324 @@
+name: tickethub
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-root}
+    ports:
+      - "${MYSQL_HOST_PORT:-3307}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./infra/mysql:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${DB_PASSWORD:-root}"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+    restart: unless-stopped
+
+  kafka:
+    image: apache/kafka:latest
+    hostname: kafka
+    ports:
+      - "29092:29092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093,EXTERNAL://:29092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    restart: unless-stopped
+
+  config-server:
+    build: ./config-server
+    ports:
+      - "8888:8888"
+    environment:
+      SERVER_PORT: 8888
+    restart: unless-stopped
+
+  service-discovery:
+    build: ./service-discovery
+    ports:
+      - "8761:8761"
+    environment:
+      SERVER_PORT: 8761
+    restart: unless-stopped
+
+  user-service:
+    build: ./UserService
+    ports:
+      - "8082:8082"
+    environment:
+      SERVER_PORT: 8082
+      DB_HOST: mysql
+      DB_USERNAME: root
+      DB_PASSWORD: ${DB_PASSWORD:-root}
+      EUREKA_URL: http://service-discovery:8761/eureka/
+      CONFIG_SERVER_URL: http://config-server:8888
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+      JWT_SECRET: ${JWT_SECRET:-replace-with-a-random-secret-at-least-32-characters}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:8080/auth/google/callback}
+      GOOGLE_VERIFY_TOKEN: ${GOOGLE_VERIFY_TOKEN:-false}
+    depends_on:
+      config-server:
+        condition: service_started
+      mysql:
+        condition: service_healthy
+      service-discovery:
+        condition: service_started
+    restart: unless-stopped
+
+  event-service:
+    build: ./EventService
+    ports:
+      - "8081:8081"
+    environment:
+      SERVER_PORT: 8081
+      DB_HOST: mysql
+      DB_USERNAME: root
+      DB_PASSWORD: ${DB_PASSWORD:-root}
+      EUREKA_URL: http://service-discovery:8761/eureka/
+      CONFIG_SERVER_URL: http://config-server:8888
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+      AWS_S3_ENABLED: ${AWS_S3_ENABLED:-false}
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET:-tickethub-media-bucket}
+      AWS_S3_REGION: ${AWS_S3_REGION:-ap-south-1}
+    depends_on:
+      config-server:
+        condition: service_started
+      mysql:
+        condition: service_healthy
+      service-discovery:
+        condition: service_started
+    restart: unless-stopped
+
+  booking-service:
+    build: ./tickethub-booking-service
+    ports:
+      - "8083:8083"
+    environment:
+      SERVER_PORT: 8083
+      DB_HOST: mysql
+      DB_USERNAME: root
+      DB_PASSWORD: ${DB_PASSWORD:-root}
+      EUREKA_URL: http://service-discovery:8761/eureka/
+      CONFIG_SERVER_URL: http://config-server:8888
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+      EVENT_SERVICE_URL: http://event-service:8081
+      USER_SERVICE_URL: http://user-service:8082
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      NOTIFICATION_DEFAULT_RECIPIENT: ${NOTIFICATION_DEFAULT_RECIPIENT:-customer@tickethub.com}
+      NOTIFICATION_DEFAULT_NAME: ${NOTIFICATION_DEFAULT_NAME:-TicketHub Customer}
+    depends_on:
+      config-server:
+        condition: service_started
+      mysql:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      service-discovery:
+        condition: service_started
+      event-service:
+        condition: service_started
+      user-service:
+        condition: service_started
+    restart: unless-stopped
+
+  payment-service:
+    build: ./PaymentService
+    ports:
+      - "8084:8084"
+    environment:
+      SERVER_PORT: 8084
+      DB_HOST: mysql
+      DB_USERNAME: root
+      DB_PASSWORD: ${DB_PASSWORD:-root}
+      EUREKA_URL: http://service-discovery:8761/eureka/
+      CONFIG_SERVER_URL: http://config-server:8888
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-rzp_test_Tnd3gqp6vCm3lS}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-gfcJX04FMEckxGom5mx4FTYZ}
+      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-replace-with-a-random-secret-at-least-32-characters}
+    depends_on:
+      config-server:
+        condition: service_started
+      mysql:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      service-discovery:
+        condition: service_started
+      booking-service:
+        condition: service_started
+    restart: unless-stopped
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    restart: unless-stopped
+
+  notification-service:
+    build: ./NotificationService
+    ports:
+      - "8087:8087"
+    environment:
+      SERVER_PORT: 8087
+      DB_HOST: mysql
+      DB_USERNAME: root
+      DB_PASSWORD: ${DB_PASSWORD:-root}
+      EUREKA_URL: http://service-discovery:8761/eureka/
+      CONFIG_SERVER_URL: http://config-server:8888
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      MAIL_HOST: ${MAIL_HOST:-mailpit}
+      MAIL_PORT: ${MAIL_PORT:-1025}
+      MAIL_USERNAME: ${MAIL_USERNAME:-${GMAIL_USERNAME:-}}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-${GMAIL_APP_PASSWORD:-}}
+      GMAIL_USERNAME: ${GMAIL_USERNAME:-}
+      GMAIL_APP_PASSWORD: ${GMAIL_APP_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-noreply@tickethub.com}
+      MAIL_SMTP_AUTH: ${MAIL_SMTP_AUTH:-false}
+      MAIL_SMTP_STARTTLS: ${MAIL_SMTP_STARTTLS:-false}
+      NOTIFICATION_DEFAULT_RECIPIENT: ${NOTIFICATION_DEFAULT_RECIPIENT:-customer@tickethub.com}
+    depends_on:
+      config-server:
+        condition: service_started
+      mysql:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      service-discovery:
+        condition: service_started
+      mailpit:
+        condition: service_started
+    restart: unless-stopped
+
+  api-gateway:
+    build: ./api-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      SERVER_PORT: 8080
+      EUREKA_URL: http://service-discovery:8761/eureka/
+      CONFIG_SERVER_URL: http://config-server:8888
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+      JWT_SECRET: ${JWT_SECRET:-replace-with-a-random-secret-at-least-32-characters}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+      MANAGER_USERNAME: ${MANAGER_USERNAME:-eventmanager}
+      MANAGER_PASSWORD: ${MANAGER_PASSWORD:-manager123}
+      CUSTOMER_USERNAME: ${CUSTOMER_USERNAME:-customer}
+      CUSTOMER_PASSWORD: ${CUSTOMER_PASSWORD:-customer123}
+    depends_on:
+      config-server:
+        condition: service_started
+      service-discovery:
+        condition: service_started
+      user-service:
+        condition: service_started
+      event-service:
+        condition: service_started
+      booking-service:
+        condition: service_started
+      payment-service:
+        condition: service_started
+      notification-service:
+        condition: service_started
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    profiles: ["observability"]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - user-service
+      - event-service
+      - booking-service
+      - payment-service
+      - notification-service
+      - api-gateway
+
+  grafana:
+    image: grafana/grafana:latest
+    profiles: ["observability"]
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    profiles: ["auth"]
+    command: start-dev --import-realm
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+    ports:
+      - "8085:8080"
+    volumes:
+      - ./infra/keycloak:/opt/keycloak/data/import:ro
+    restart: unless-stopped
+
+  elasticsearch:
+    image: elasticsearch:8.17.0
+    profiles: ["observability"]
+    ports:
+      - "9200:9200"
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+
+  logstash:
+    image: logstash:8.17.0
+    profiles: ["observability"]
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./infra/elk/logstash/pipeline/logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
+    depends_on:
+      - elasticsearch
+
+  kibana:
+    image: kibana:8.17.0
+    profiles: ["observability"]
+    ports:
+      - "5601:5601"
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    depends_on:
+      - elasticsearch
+
+volumes:
+  mysql-data:
+  kafka-data:
+  elasticsearch-data:

@@ -1,0 +1,82 @@
+{
+  "realm": "tickethub",
+  "enabled": true,
+  "displayName": "TicketHub Identity Realm",
+  "sslRequired": "none",
+  "registrationAllowed": true,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "roles": {
+    "realm": [
+      { "name": "ADMIN", "description": "Administrator with full system privileges" },
+      { "name": "EVENT_MANAGER", "description": "Event and Show Manager" },
+      { "name": "CUSTOMER", "description": "Ticketing Customer" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "tickethub-client",
+      "name": "TicketHub Frontend & API Gateway",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "tickethub-client-secret-key-12345",
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "redirectUris": [
+        "http://localhost:8080/*",
+        "http://localhost:3000/*",
+        "http://api-gateway:8080/*"
+      ],
+      "webOrigins": ["*"],
+      "defaultClientScopes": ["web-origins", "role_list", "profile", "roles", "email"]
+    }
+  ],
+  "users": [
+    {
+      "username": "admin",
+      "enabled": true,
+      "email": "admin@tickethub.com",
+      "firstName": "System",
+      "lastName": "Administrator",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "admin123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["ADMIN"]
+    },
+    {
+      "username": "eventmanager",
+      "enabled": true,
+      "email": "manager@tickethub.com",
+      "firstName": "Event",
+      "lastName": "Manager",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "manager123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["EVENT_MANAGER"]
+    },
+    {
+      "username": "customer",
+      "enabled": true,
+      "email": "customer@tickethub.com",
+      "firstName": "John",
+      "lastName": "Doe",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "customer123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["CUSTOMER"]
+    }
+  ]
+}
