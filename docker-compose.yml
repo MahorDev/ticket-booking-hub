@@ -40,6 +40,18 @@ services:
       - kafka-data:/var/lib/kafka/data
     restart: unless-stopped
 
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    ports:
+      - "8088:8080"
+    environment:
+      DYNAMIC_CONFIG_ENABLED: "true"
+      KAFKA_CLUSTERS_0_NAME: tickethub-kafka
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    depends_on:
+      - kafka
+    restart: unless-stopped
+
   config-server:
     build: ./config-server
     ports:
@@ -245,26 +257,29 @@ services:
 
   prometheus:
     image: prom/prometheus:latest
-    profiles: ["observability"]
     ports:
       - "9090:9090"
     volumes:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-    depends_on:
-      - user-service
-      - event-service
-      - booking-service
-      - payment-service
-      - notification-service
-      - api-gateway
+    restart: unless-stopped
 
   grafana:
     image: grafana/grafana:latest
-    profiles: ["observability"]
     ports:
       - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_USERS_DEFAULT_THEME=dark
+    volumes:
+      - ./infra/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./infra/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       - prometheus
+    restart: unless-stopped
 
   jaeger:
     image: jaegertracing/all-in-one:latest

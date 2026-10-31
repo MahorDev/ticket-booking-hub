@@ -1,7 +1,6 @@
 package org.tickethub.bookingservice.scheduler;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -14,18 +13,26 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 @Component
-@RequiredArgsConstructor
 @Slf4j
 public class OutboxPublisherScheduler {
 
     private final OutboxService outboxService;
-    private final KafkaTemplate<String, BookingConfirmedEvent> kafkaTemplate;
+    @SuppressWarnings("rawtypes")
+    private final KafkaTemplate kafkaTemplate;
     private final ObjectMapper objectMapper;
 
+    @SuppressWarnings("rawtypes")
+    public OutboxPublisherScheduler(OutboxService outboxService, KafkaTemplate kafkaTemplate, ObjectMapper objectMapper) {
+        this.outboxService = outboxService;
+        this.kafkaTemplate = kafkaTemplate;
+        this.objectMapper = objectMapper;
+    }
+
     @Scheduled(fixedDelayString = "${outbox.publish-interval-ms:5000}")
+    @SuppressWarnings("unchecked")
     public void processOutboxMessages() {
         List<OutboxMessage> pendingMessages = outboxService.getPendingMessages();
-        if (pendingMessages.isEmpty()) {
+        if (pendingMessages == null || pendingMessages.isEmpty()) {
             return;
         }
 
@@ -33,17 +40,20 @@ public class OutboxPublisherScheduler {
 
         for (OutboxMessage msg : pendingMessages) {
             if (msg.getRetryCount() >= 10) {
-                // Max retries reached; leave as failed for manual dead-letter inspection
                 continue;
             }
 
             try {
+                // Scenario 6: bookingId (aggregateId) as key
                 if ("booking-confirmed".equals(msg.getTopic())) {
                     BookingConfirmedEvent event = objectMapper.readValue(msg.getPayload(), BookingConfirmedEvent.class);
                     kafkaTemplate.send(msg.getTopic(), msg.getAggregateId(), event).get(5, TimeUnit.SECONDS);
-                    outboxService.markPublished(msg.getId());
-                    log.info("Durable Outbox published message id={} for aggregateId={}", msg.getId(), msg.getAggregateId());
+                } else {
+                    kafkaTemplate.send(msg.getTopic(), msg.getAggregateId(), msg.getPayload()).get(5, TimeUnit.SECONDS);
                 }
+                outboxService.markPublished(msg.getId());
+                log.info("Durable Outbox published message id={} topic={} for aggregateId={}",
+                        msg.getId(), msg.getTopic(), msg.getAggregateId());
             } catch (Exception ex) {
                 log.warn("Retry failed for outbox message id={}, retryCount={}: {}",
                         msg.getId(), msg.getRetryCount() + 1, ex.getMessage());

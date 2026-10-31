@@ -12,4 +12,5 @@ public interface BookingService {
     List<BookingResponse> getMyBookings(Long userId);
     BookingStatus getStatus(Long bookingId);
     BookingResponse cancel(Long bookingId, Long userId);
+    org.tickethub.bookingservice.dto.response.SagaStateResponse getSagaState(Long bookingId);
 }

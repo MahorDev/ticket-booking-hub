@@ -23,6 +23,10 @@ import org.tickethub.paymentservice.repository.PaymentRepository;
 import org.tickethub.paymentservice.repository.PaymentWebhookEventRepository;
 import org.tickethub.paymentservice.service.PaymentService;
 
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -30,6 +34,7 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class PaymentServiceImpl implements PaymentService {
 
     private final PaymentRepository paymentRepository;
@@ -171,7 +176,16 @@ public class PaymentServiceImpl implements PaymentService {
 
         payment.setStatus(PaymentStatus.CANCELLED);
         Payment cancelled = paymentRepository.save(payment);
-        bookingServiceGateway.markPaymentFailure(cancelled.getBookingId(), "payment-cancelled");
+        try {
+            bookingServiceGateway.markPaymentFailure(cancelled.getBookingId(), "payment-cancelled");
+        } catch (Exception ex) {
+            log.warn("Booking Service synchronous REST failure callback failed: {}", ex.getMessage());
+        }
+        paymentEventProducer.publishPaymentFailed(org.tickethub.paymentservice.event.PaymentFailedEvent.builder()
+                .bookingId(cancelled.getBookingId())
+                .paymentId(cancelled.getId())
+                .reason("payment-cancelled")
+                .build());
         return mapToResponse(cancelled);
     }
 
@@ -203,10 +217,16 @@ public class PaymentServiceImpl implements PaymentService {
             }
         }
 
-        BookingResponse currentBooking = bookingServiceGateway.getBooking(payment.getBookingId());
+        BookingResponse currentBooking = null;
+        try {
+            currentBooking = bookingServiceGateway.getBooking(payment.getBookingId());
+        } catch (Exception ex) {
+            log.warn("Booking Service offline while confirming payment for bookingId={}. Saga will synchronize asynchronously: {}",
+                    payment.getBookingId(), ex.getMessage());
+        }
         String bookingStatus = currentBooking != null && currentBooking.getStatus() != null
                 ? currentBooking.getStatus().toUpperCase()
-                : "";
+                : "PENDING_PAYMENT";
         if (!"PENDING_PAYMENT".equals(bookingStatus) && !"CONFIRMED".equals(bookingStatus)) {
             paymentProvider.refund(razorpayPaymentId, payment.getAmount());
             payment.setRazorpayPaymentId(razorpayPaymentId);
@@ -222,7 +242,12 @@ public class PaymentServiceImpl implements PaymentService {
         Payment updated = paymentRepository.saveAndFlush(payment);
 
         if (!"CONFIRMED".equals(bookingStatus)) {
-            bookingServiceGateway.markPaymentSuccess(updated.getBookingId(), razorpayPaymentId);
+            try {
+                bookingServiceGateway.markPaymentSuccess(updated.getBookingId(), razorpayPaymentId);
+            } catch (Exception ex) {
+                log.warn("Booking Service synchronous REST callback failed for bookingId={}. Saga event will handle confirmation asynchronously: {}",
+                        updated.getBookingId(), ex.getMessage());
+            }
         }
 
         publishPaymentSuccessEvent(updated, currentBooking, razorpayPaymentId, updated.getRazorpayOrderId());
@@ -247,7 +272,8 @@ public class PaymentServiceImpl implements PaymentService {
             String eventType = root.path("event").asText();
             boolean captured = "payment.captured".equals(eventType);
             boolean failed = "payment.failed".equals(eventType);
-            if (!captured && !failed) {
+            boolean authorized = "payment.authorized".equals(eventType);
+            if (!captured && !failed && !authorized) {
                 return;
             }
 
@@ -285,9 +311,42 @@ public class PaymentServiceImpl implements PaymentService {
                 paymentWebhookEventRepository.saveAndFlush(webhookEvent);
             }
 
+            // Scenario 9 Task 2: Allow ONLY forward transitions (never backwards)
+            if (payment.getStatus() == PaymentStatus.SUCCESS || payment.getStatus() == PaymentStatus.REFUNDED) {
+                log.info("Ignoring webhook {} because payment {} is already in final state {}",
+                        eventType, payment.getId(), payment.getStatus());
+                if (webhookEvent != null) {
+                    webhookEvent.setProcessed(true);
+                    webhookEvent.setProcessedAt(LocalDateTime.now());
+                    paymentWebhookEventRepository.save(webhookEvent);
+                }
+                return;
+            }
+
+            if (authorized) {
+                payment.setStatus(PaymentStatus.AUTHORIZED);
+                payment.setRazorpayPaymentId(razorpayPaymentId);
+                paymentRepository.saveAndFlush(payment);
+                if (webhookEvent != null) {
+                    webhookEvent.setProcessed(true);
+                    webhookEvent.setProcessedAt(LocalDateTime.now());
+                    paymentWebhookEventRepository.save(webhookEvent);
+                }
+                log.info("Payment {} transitioned forward to AUTHORIZED via webhook.", payment.getId());
+                return;
+            }
+
             if (captured && payment.getStatus() != PaymentStatus.SUCCESS) {
-                BookingResponse currentBooking = bookingServiceGateway.getBooking(payment.getBookingId());
-                String bookingStatus = currentBooking.getStatus() == null ? "" : currentBooking.getStatus().toUpperCase();
+                BookingResponse currentBooking = null;
+                try {
+                    currentBooking = bookingServiceGateway.getBooking(payment.getBookingId());
+                } catch (Exception ex) {
+                    log.warn("Booking Service offline during webhook for bookingId={}. Proceeding with Saga: {}",
+                            payment.getBookingId(), ex.getMessage());
+                }
+                String bookingStatus = currentBooking != null && currentBooking.getStatus() != null
+                        ? currentBooking.getStatus().toUpperCase()
+                        : "PENDING_PAYMENT";
                 if (!"PENDING_PAYMENT".equals(bookingStatus) && !"CONFIRMED".equals(bookingStatus)) {
                     // A captured payment for an expired/cancelled/failed reservation must not create a ticket.
                     // Refund it and record the late provider result instead.
@@ -324,7 +383,11 @@ public class PaymentServiceImpl implements PaymentService {
 
                 // Booking confirmation must be acknowledged before payment-success is announced.
                 if (!"CONFIRMED".equals(bookingStatus)) {
-                    bookingServiceGateway.markPaymentSuccess(updated.getBookingId(), razorpayPaymentId);
+                    try {
+                        bookingServiceGateway.markPaymentSuccess(updated.getBookingId(), razorpayPaymentId);
+                    } catch (Exception ex) {
+                        log.warn("Booking Service REST callback failed in webhook: {}", ex.getMessage());
+                    }
                 }
                 publishPaymentSuccessEvent(updated, currentBooking, razorpayPaymentId, razorpayOrderId);
             } else if (failed && payment.getStatus() != PaymentStatus.SUCCESS
@@ -334,7 +397,16 @@ public class PaymentServiceImpl implements PaymentService {
                 payment.setStatus(PaymentStatus.FAILED);
                 paymentRepository.saveAndFlush(payment);
                 // Failed payments must release the booking's temporary seat locks.
-                bookingServiceGateway.markPaymentFailure(payment.getBookingId(), razorpayPaymentId);
+                try {
+                    bookingServiceGateway.markPaymentFailure(payment.getBookingId(), razorpayPaymentId);
+                } catch (Exception ex) {
+                    log.warn("Booking Service failure callback failed in webhook: {}", ex.getMessage());
+                }
+                paymentEventProducer.publishPaymentFailed(org.tickethub.paymentservice.event.PaymentFailedEvent.builder()
+                        .bookingId(payment.getBookingId())
+                        .paymentId(payment.getId())
+                        .reason("payment-failed-webhook")
+                        .build());
             }
 
             if (webhookEvent != null) {
@@ -403,5 +475,43 @@ public class PaymentServiceImpl implements PaymentService {
                 .paidAt(payment.getPaidAt())
                 .createdAt(payment.getCreatedAt())
                 .build();
+    }
+
+    @Override
+    @Transactional
+    public PaymentResponse resolveUnknownPayment(Long paymentId) {
+        Payment payment = paymentRepository.findById(paymentId)
+                .orElseThrow(() -> new PaymentNotFoundException("Payment not found: " + paymentId));
+
+        log.info("Resolving unknown/timed-out payment {} with provider...", paymentId);
+        String providerStatus = paymentProvider.fetchPaymentStatus(
+                payment.getRazorpayPaymentId() != null ? payment.getRazorpayPaymentId() : payment.getRazorpayOrderId());
+
+        if ("captured".equalsIgnoreCase(providerStatus) || "authorized".equalsIgnoreCase(providerStatus)) {
+            payment.setStatus(PaymentStatus.SUCCESS);
+            payment.setUpdatedAt(LocalDateTime.now());
+            Payment updated = paymentRepository.saveAndFlush(payment);
+
+            PaymentSuccessEvent event = PaymentSuccessEvent.builder()
+                    .eventMessageId("resolved-evt-" + payment.getId())
+                    .eventType("PaymentSucceeded")
+                    .aggregateVersion(2L)
+                    .bookingId(payment.getBookingId())
+                    .paymentId(payment.getId())
+                    .razorpayPaymentId(payment.getRazorpayPaymentId() != null ? payment.getRazorpayPaymentId() : "pay_resolved_" + payment.getId())
+                    .amount(payment.getAmount())
+                    .currency(payment.getCurrency())
+                    .eventTimestamp(LocalDateTime.now())
+                    .build();
+            paymentEventProducer.publishPaymentSuccess(event);
+            log.info("Resolved unknown payment {} to SUCCESS and published to Kafka.", paymentId);
+            return mapToResponse(updated);
+        } else {
+            payment.setStatus(PaymentStatus.FAILED);
+            payment.setUpdatedAt(LocalDateTime.now());
+            Payment updated = paymentRepository.saveAndFlush(payment);
+            log.info("Resolved unknown payment {} to FAILED.", paymentId);
+            return mapToResponse(updated);
+        }
     }
 }

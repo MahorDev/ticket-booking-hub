@@ -188,6 +188,13 @@ public class BookingController {
         return cancel(bookingId, userId, authUser, authRole, null);
     }
 
+    @GetMapping("/{bookingId}/saga-state")
+    public ResponseEntity<Response<org.tickethub.bookingservice.dto.response.SagaStateResponse>> getSagaState(
+            @PathVariable Long bookingId) {
+        var state = bookingService.getSagaState(bookingId);
+        return ResponseEntity.ok(Response.success("Saga state retrieved successfully", state));
+    }
+
     private boolean matchesUser(Long entityUserId, String authUser, String authUserId) {
         if (entityUserId == null) return true;
         if (authUserId != null && !authUserId.isBlank()) {

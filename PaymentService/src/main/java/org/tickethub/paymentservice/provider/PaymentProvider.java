@@ -12,4 +12,5 @@ public interface PaymentProvider {
     boolean verifyWebhookSignature(String payload, String signature);
 
     void refund(String paymentId, BigDecimal amount);
+    String fetchPaymentStatus(String paymentId);
 }

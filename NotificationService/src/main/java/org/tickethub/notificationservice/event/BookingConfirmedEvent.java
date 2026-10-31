@@ -1,6 +1,7 @@
 package org.tickethub.notificationservice.event;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -15,7 +16,14 @@ import java.util.List;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class BookingConfirmedEvent {
+    // Event metadata for Saga & Inbox Idempotency
+    @JsonAlias({"eventMessageId", "messageId"})
+    private String eventMessageId;
+    private String eventType;
+    private Long aggregateVersion;
+    private java.time.LocalDateTime eventTimestamp;
 
     // Booking information
     private Long bookingId;
@@ -48,8 +56,10 @@ public class BookingConfirmedEvent {
 
     // Seat information
     private List<SeatInfo> seats;
+    private String seatCategory;
 
     // Payment information
+    @JsonAlias({"totalAmount", "amount"})
     private BigDecimal totalAmount;
     private String currency;
     private String paymentStatus;

@@ -188,6 +188,17 @@ public class PaymentController {
         return ResponseEntity.ok().build();
     }
 
+    @PostMapping("/{paymentId}/resolve-unknown")
+    public ResponseEntity<ResponseDto> resolveUnknown(@PathVariable Long paymentId) {
+        PaymentResponse paymentResponse = paymentService.resolveUnknownPayment(paymentId);
+        ResponseDto response = ResponseDto.builder()
+                .message("Payment resolved successfully")
+                .data(paymentResponse)
+                .error(false)
+                .build();
+        return ResponseEntity.ok(response);
+    }
+
     private boolean shouldEnforceOwnership(String authUserId, String authUser, String authRole) {
         if ("ADMIN".equalsIgnoreCase(authRole)) {
             return false;

@@ -138,5 +138,19 @@ public class RazorpayPaymentProvider implements PaymentProvider {
             throw new RuntimeException("Failed to refund Razorpay payment", e);
         }
     }
+
+    @Override
+    public String fetchPaymentStatus(String paymentId) {
+        if (isSimulatedMode() || paymentId == null || paymentId.startsWith("pay_mock_") || paymentId.startsWith("pay_test_")) {
+            return "captured";
+        }
+        try {
+            com.razorpay.Payment payment = razorpayClient().payments.fetch(paymentId);
+            return payment.get("status");
+        } catch (Exception e) {
+            log.warn("Failed to fetch Razorpay payment {}: {}", paymentId, e.getMessage());
+            return "unknown";
+        }
+    }
 }
 

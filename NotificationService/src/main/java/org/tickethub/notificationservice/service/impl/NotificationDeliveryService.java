@@ -1,14 +1,16 @@
 package org.tickethub.notificationservice.service.impl;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.tickethub.notificationservice.entity.InboxMessage;
 import org.tickethub.notificationservice.entity.Notification;
 import org.tickethub.notificationservice.entity.NotificationChannel;
 import org.tickethub.notificationservice.entity.NotificationStatus;
 import org.tickethub.notificationservice.event.BookingConfirmedEvent;
 import org.tickethub.notificationservice.event.PaymentSuccessEvent;
+import org.tickethub.notificationservice.repository.InboxMessageRepository;
 import org.tickethub.notificationservice.repository.NotificationRepository;
 import org.tickethub.notificationservice.service.EmailNotificationService;
 
@@ -16,14 +18,29 @@ import java.time.LocalDateTime;
 
 /**
  * Notification persistence and delivery are owned by Notification Service.
- * Booking confirmation is never rolled back when email delivery fails.
+ * Implements Scenario 1 (Bad data validation) and Scenario 2 (Idempotent Inbox pattern).
  */
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class NotificationDeliveryService {
     private final NotificationRepository repository;
+    private final InboxMessageRepository inboxRepository;
     private final EmailNotificationService emailService;
+
+    @Autowired
+    public NotificationDeliveryService(NotificationRepository repository,
+                                       InboxMessageRepository inboxRepository,
+                                       EmailNotificationService emailService) {
+        this.repository = repository;
+        this.inboxRepository = inboxRepository;
+        this.emailService = emailService;
+    }
+
+    public NotificationDeliveryService(NotificationRepository repository, EmailNotificationService emailService) {
+        this.repository = repository;
+        this.inboxRepository = null;
+        this.emailService = emailService;
+    }
 
     @Transactional(noRollbackFor = IllegalStateException.class)
     public void deliverPaymentSuccess(PaymentSuccessEvent event, String recipient) {
@@ -31,10 +48,17 @@ public class NotificationDeliveryService {
         String keySuffix = event.getPaymentId() != null
                 ? String.valueOf(event.getPaymentId())
                 : (event.getRazorpayPaymentId() != null ? event.getRazorpayPaymentId() : String.valueOf(bookingId));
-        String eventKey = "payment-success:" + keySuffix;
-        Notification notification = prepare(eventKey, bookingId, recipient, "PAYMENT_SUCCESS");
+        String eventId = "payment-success:" + keySuffix;
+
+        // Scenario 2: Inbox deduplication
+        if (inboxRepository != null && inboxRepository.existsByEventId(eventId)) {
+            log.info("Duplicate payment event ignored (Inbox dedup) eventId={}", eventId);
+            return;
+        }
+
+        Notification notification = prepare(eventId, bookingId, recipient, "PAYMENT_SUCCESS");
         if (notification.getStatus() == NotificationStatus.SENT) {
-            log.info("Duplicate payment notification ignored eventKey={}", eventKey);
+            log.info("Duplicate payment notification ignored eventKey={}", eventId);
             return;
         }
         try {
@@ -43,6 +67,9 @@ public class NotificationDeliveryService {
                     ? event.getRazorpayPaymentId()
                     : keySuffix);
             markSent(notification);
+
+            // Record in inbox table in the same transaction
+            recordInbox(eventId, "PAYMENT_SUCCESS", "payment-success", String.valueOf(bookingId));
         } catch (Exception ex) {
             markFailed(notification, ex);
             throw new IllegalStateException("Payment notification delivery failed", ex);
@@ -52,6 +79,10 @@ public class NotificationDeliveryService {
     @Transactional(noRollbackFor = IllegalStateException.class)
     public void deliverPaymentSuccess(String eventKey, Long bookingId, String recipient,
                                       String paymentId, String amount, String currency) {
+        if (inboxRepository != null && inboxRepository.existsByEventId(eventKey)) {
+            log.info("Duplicate notification ignored (Inbox dedup) eventKey={}", eventKey);
+            return;
+        }
         Notification notification = prepare(eventKey, bookingId, recipient, "PAYMENT_SUCCESS");
         if (notification.getStatus() == NotificationStatus.SENT) {
             log.info("Duplicate notification ignored eventKey={}", eventKey);
@@ -61,24 +92,41 @@ public class NotificationDeliveryService {
             emailService.sendPaymentSuccessEmail(recipient, bookingId, paymentId, amount, currency);
             notification.setProviderReference(paymentId);
             markSent(notification);
+            recordInbox(eventKey, "PAYMENT_SUCCESS", "payment-success", String.valueOf(bookingId));
         } catch (Exception ex) {
             markFailed(notification, ex);
-            // Throwing lets Kafka retry this delivery; FAILED records are retryable.
             throw new IllegalStateException("Payment notification delivery failed", ex);
         }
     }
 
     @Transactional(noRollbackFor = IllegalStateException.class)
     public void deliverBookingConfirmation(BookingConfirmedEvent event) {
-        String eventKey = "booking-confirmed:" + event.getBookingId();
-        Long bookingId = event.getBookingId();
-        String recipient = event.getRecipientEmail();
-        if (recipient == null || recipient.isBlank()) {
-            recipient = "customer@tickethub.com";
+        if (event == null) {
+            throw new IllegalArgumentException("BookingConfirmedEvent cannot be null");
         }
-        Notification notification = prepare(eventKey, bookingId, recipient, "BOOKING_CONFIRMED");
+        if (event.getBookingId() == null || event.getBookingId() <= 0) {
+            throw new IllegalArgumentException("BookingConfirmedEvent must contain a valid bookingId");
+        }
+        if (event.getRecipientEmail() == null || event.getRecipientEmail().isBlank()) {
+            throw new IllegalArgumentException("BookingConfirmedEvent must contain a recipient email address (bad data for DLT)");
+        }
+
+        String eventId = event.getEventMessageId();
+        if (eventId == null || eventId.isBlank()) {
+            eventId = "booking-confirmed:" + event.getBookingId();
+        }
+
+        // Scenario 2: Inbox check prevents duplicate processing
+        if (inboxRepository != null && inboxRepository.existsByEventId(eventId)) {
+            log.info("Duplicate booking confirmed event rejected by Inbox. eventId={} bookingId={}",
+                    eventId, event.getBookingId());
+            return;
+        }
+
+        String recipient = event.getRecipientEmail();
+        Notification notification = prepare(eventId, event.getBookingId(), recipient, "BOOKING_CONFIRMED");
         if (notification.getStatus() == NotificationStatus.SENT) {
-            log.info("Duplicate booking notification ignored eventKey={}", eventKey);
+            log.info("Duplicate booking notification ignored eventKey={}", eventId);
             return;
         }
         try {
@@ -87,10 +135,26 @@ public class NotificationDeliveryService {
                 notification.setProviderReference(event.getTicketNumber());
             }
             markSent(notification);
+
+            // Save inbox row in same transaction as notification
+            recordInbox(eventId, "BOOKING_CONFIRMED", "booking-confirmed", String.valueOf(event.getBookingId()));
         } catch (Exception ex) {
             markFailed(notification, ex);
             throw new IllegalStateException("Booking confirmation email delivery failed", ex);
         }
+    }
+
+    private void recordInbox(String eventId, String type, String topic, String aggregateId) {
+        if (inboxRepository == null) return;
+        InboxMessage inbox = InboxMessage.builder()
+                .eventId(eventId)
+                .eventType(type)
+                .topic(topic)
+                .aggregateId(aggregateId)
+                .status("PROCESSED")
+                .processedAt(LocalDateTime.now())
+                .build();
+        inboxRepository.save(inbox);
     }
 
     private Notification prepare(String eventKey, Long bookingId, String recipient, String type) {
@@ -98,7 +162,7 @@ public class NotificationDeliveryService {
         if (bookingId == null || bookingId <= 0) throw new IllegalArgumentException("A valid booking ID is required");
         if (recipient == null || recipient.isBlank()) throw new IllegalArgumentException("Notification recipient is required");
 
-        Notification notification = repository.findByEventKey(eventKey).orElseGet(() ->
+        return repository.findByEventKey(eventKey).orElseGet(() ->
                 Notification.builder()
                         .eventKey(eventKey)
                         .bookingId(bookingId)
@@ -108,28 +172,25 @@ public class NotificationDeliveryService {
                         .status(NotificationStatus.PENDING)
                         .createdAt(LocalDateTime.now())
                         .build());
-        if (notification.getStatus() != NotificationStatus.SENT) {
-            notification.setStatus(NotificationStatus.PENDING);
-            notification.setErrorMessage(null);
-            notification.setUpdatedAt(LocalDateTime.now());
-            notification.setRecipient(recipient);
-        }
-        return repository.saveAndFlush(notification);
     }
 
     private void markSent(Notification notification) {
         notification.setStatus(NotificationStatus.SENT);
+        notification.setErrorMessage(null);
         notification.setSentAt(LocalDateTime.now());
         notification.setUpdatedAt(LocalDateTime.now());
-        notification.setErrorMessage(null);
         repository.save(notification);
     }
 
     private void markFailed(Notification notification, Exception ex) {
-        notification.setStatus(NotificationStatus.FAILED);
+        notification.setStatus(NotificationStatus.RETRYING);
+        notification.setErrorMessage(truncate(ex.getMessage(), 1000));
         notification.setUpdatedAt(LocalDateTime.now());
-        String message = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
-        notification.setErrorMessage(message.substring(0, Math.min(message.length(), 1000)));
         repository.save(notification);
+    }
+
+    private String truncate(String text, int max) {
+        if (text == null) return null;
+        return text.length() <= max ? text : text.substring(0, max);
     }
 }

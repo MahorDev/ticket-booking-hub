@@ -1,6 +1,7 @@
 package org.tickethub.bookingservice.exception;
 
 import jakarta.servlet.http.HttpServletRequest;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.*;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -14,6 +15,7 @@ import org.tickethub.bookingservice.dto.response.Response;
 import java.time.LocalDateTime;
 import java.util.List;
 
+@Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -84,6 +86,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     ResponseEntity<Response<Void>> handleOther(
             Exception ex, HttpServletRequest req) {
+        log.error("Unexpected server error for request {}: {}", req.getRequestURI(), ex.getMessage(), ex);
         return build(
                 HttpStatus.INTERNAL_SERVER_ERROR,
                 "Unexpected server error"

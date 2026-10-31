@@ -38,6 +38,7 @@ public class BookingServiceImpl implements BookingService {
     private final UserServiceClient userServiceClient;
     private final TicketService ticketService;
     private final BookingProperties bookingProperties;
+    private final org.tickethub.bookingservice.kafka.BookingEventProducer bookingEventProducer;
 
     @Autowired
     public BookingServiceImpl(
@@ -47,7 +48,8 @@ public class BookingServiceImpl implements BookingService {
             UserServiceClient userServiceClient,
             TicketService ticketService,
             BookingMapper bookingMapper,
-            BookingProperties bookingProperties) {
+            BookingProperties bookingProperties,
+            org.tickethub.bookingservice.kafka.BookingEventProducer bookingEventProducer) {
         this.bookingRepository = bookingRepository;
         this.bookingMapper = bookingMapper;
         this.seatLockRepository = seatLockRepository;
@@ -55,6 +57,18 @@ public class BookingServiceImpl implements BookingService {
         this.userServiceClient = userServiceClient;
         this.ticketService = ticketService;
         this.bookingProperties = bookingProperties;
+        this.bookingEventProducer = bookingEventProducer;
+    }
+
+    public BookingServiceImpl(
+            BookingRepository bookingRepository,
+            SeatLockRepository seatLockRepository,
+            EventServiceGateway eventServiceGateway,
+            UserServiceClient userServiceClient,
+            TicketService ticketService,
+            BookingMapper bookingMapper,
+            BookingProperties bookingProperties) {
+        this(bookingRepository, seatLockRepository, eventServiceGateway, userServiceClient, ticketService, bookingMapper, bookingProperties, null);
     }
 
     public BookingServiceImpl(
@@ -64,7 +78,7 @@ public class BookingServiceImpl implements BookingService {
             TicketService ticketService,
             BookingMapper bookingMapper,
             BookingProperties bookingProperties) {
-        this(bookingRepository, seatLockRepository, new EventServiceGateway(eventServiceClient), null, ticketService, bookingMapper, bookingProperties);
+        this(bookingRepository, seatLockRepository, new EventServiceGateway(eventServiceClient), null, ticketService, bookingMapper, bookingProperties, null);
     }
 
     @Override
@@ -340,7 +354,23 @@ public class BookingServiceImpl implements BookingService {
         }
 
         if (booking.getStatus() == BookingStatus.CONFIRMED) {
-            throw new ConflictException("Confirmed booking cannot be cancelled in Phase 1");
+            booking.setStatus(BookingStatus.CANCELLED);
+            booking.setAggregateVersion((booking.getAggregateVersion() != null ? booking.getAggregateVersion() : 1L) + 1);
+            seatLockRepository.releaseByBookingId(bookingId, LocalDateTime.now());
+            Booking saved = bookingRepository.save(booking);
+
+            if (bookingEventProducer != null) {
+                org.tickethub.bookingservice.event.BookingCancelledEvent event =
+                        org.tickethub.bookingservice.event.BookingCancelledEvent.builder()
+                                .bookingId(bookingId)
+                                .userId(userId)
+                                .reason("Customer requested booking cancellation")
+                                .aggregateVersion(saved.getAggregateVersion())
+                                .eventTimestamp(LocalDateTime.now())
+                                .build();
+                bookingEventProducer.publishBookingCancelled(event);
+            }
+            return bookingMapper.toResponse(saved);
         }
 
         throw new ConflictException("Booking cannot be cancelled from status " + booking.getStatus());
@@ -379,6 +409,97 @@ public class BookingServiceImpl implements BookingService {
             throw new BadRequestException("Duplicate seatIds are not allowed");
         }
         return uniqueSorted;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public org.tickethub.bookingservice.dto.response.SagaStateResponse getSagaState(Long bookingId) {
+        Booking booking = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new NotFoundException("Booking not found: " + bookingId));
+
+        LocalDateTime now = LocalDateTime.now();
+        List<org.tickethub.bookingservice.dto.response.SagaStateResponse.SagaStepLog> steps = new ArrayList<>();
+
+        steps.add(org.tickethub.bookingservice.dto.response.SagaStateResponse.SagaStepLog.builder()
+                .step("BOOKING_INITIATED")
+                .status("COMPLETED")
+                .timestamp(booking.getCreatedAt())
+                .details("Booking created with ref " + booking.getBookingReference() + ", amount " + booking.getTotalAmount() + " " + booking.getCurrency())
+                .build());
+
+        String sagaState;
+        String explanation;
+
+        if (booking.getStatus() == BookingStatus.PENDING_PAYMENT) {
+            if (booking.getExpiresAt() != null && booking.getExpiresAt().isBefore(now)) {
+                sagaState = "EXPIRED";
+                explanation = "Seat reservation hold expired at " + booking.getExpiresAt() + " before payment completed. Any late payment event will automatically trigger a compensation refund.";
+                steps.add(org.tickethub.bookingservice.dto.response.SagaStateResponse.SagaStepLog.builder()
+                        .step("SEAT_HOLD_EXPIRED")
+                        .status("TRIGGERED")
+                        .timestamp(booking.getExpiresAt())
+                        .details("Reservation hold window exceeded (10 minutes). Seats returned to inventory.")
+                        .build());
+            } else {
+                sagaState = "PAYMENT_PENDING";
+                explanation = "Seats locked until " + booking.getExpiresAt() + ". Awaiting PaymentSucceeded event from Payment Service / Razorpay.";
+                steps.add(org.tickethub.bookingservice.dto.response.SagaStateResponse.SagaStepLog.builder()
+                        .step("AWAITING_PAYMENT")
+                        .status("IN_PROGRESS")
+                        .timestamp(now)
+                        .details("Seat locks active. Listening on Kafka topic 'payment-success'.")
+                        .build());
+            }
+        } else if (booking.getStatus() == BookingStatus.CONFIRMED) {
+            sagaState = "CONFIRMED";
+            explanation = "Payment succeeded and verified via Kafka saga. Seats permanently reserved. Confirmation event published to Notification Service.";
+            steps.add(org.tickethub.bookingservice.dto.response.SagaStateResponse.SagaStepLog.builder()
+                    .step("PAYMENT_SUCCEEDED")
+                    .status("COMPLETED")
+                    .timestamp(booking.getUpdatedAt())
+                    .details("Consumed PaymentSucceeded event. Seats converted from locked to permanent.")
+                    .build());
+            steps.add(org.tickethub.bookingservice.dto.response.SagaStateResponse.SagaStepLog.builder()
+                    .step("BOOKING_CONFIRMED_NOTIFICATION")
+                    .status("PUBLISHED")
+                    .timestamp(booking.getUpdatedAt())
+                    .details("Published BookingConfirmed to Kafka for customer email delivery.")
+                    .build());
+        } else if (booking.getStatus() == BookingStatus.CANCELLED) {
+            sagaState = "CANCELLED";
+            explanation = "Booking was cancelled. Seat locks released, and compensating refund event was published to Payment Service.";
+            steps.add(org.tickethub.bookingservice.dto.response.SagaStateResponse.SagaStepLog.builder()
+                    .step("COMPENSATION_TRIGGERED")
+                    .status("COMPLETED")
+                    .timestamp(booking.getUpdatedAt())
+                    .details("Published BookingCancelled to Kafka. Seats released, Payment Service processing refund.")
+                    .build());
+        } else if (booking.getStatus() == BookingStatus.PAYMENT_FAILED) {
+            sagaState = "FAILED";
+            explanation = "Booking failed due to payment failure or seat reservation conflict.";
+            steps.add(org.tickethub.bookingservice.dto.response.SagaStateResponse.SagaStepLog.builder()
+                    .step("SAGA_FAILED")
+                    .status("FAILED")
+                    .timestamp(booking.getUpdatedAt())
+                    .details("Payment failed or rejected. Seat locks released.")
+                    .build());
+        } else {
+            sagaState = booking.getStatus().name();
+            explanation = "Booking is currently in state " + booking.getStatus();
+        }
+
+        return org.tickethub.bookingservice.dto.response.SagaStateResponse.builder()
+                .bookingId(booking.getId())
+                .bookingReference(booking.getBookingReference())
+                .sagaState(sagaState)
+                .aggregateVersion(booking.getAggregateVersion() != null ? booking.getAggregateVersion() : 1L)
+                .customerEmail(booking.getCustomerEmail())
+                .createdAt(booking.getCreatedAt())
+                .expiresAt(booking.getExpiresAt())
+                .currentStatus(booking.getStatus().name())
+                .explanation(explanation)
+                .steps(steps)
+                .build();
     }
 
     private String generateBookingReference() {

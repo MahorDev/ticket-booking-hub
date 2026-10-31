@@ -139,7 +139,7 @@ public class EmailNotificationDeliveryTest {
                 .build();
 
         when(repository.findByEventKey("payment-success:9001")).thenReturn(Optional.empty());
-        when(repository.saveAndFlush(any(Notification.class))).thenAnswer(i -> i.getArgument(0));
+        lenient().when(repository.saveAndFlush(any(Notification.class))).thenAnswer(i -> i.getArgument(0));
 
         deliveryService.deliverPaymentSuccess(paymentEvent, "john.doe@gmail.com");
 
@@ -166,7 +166,7 @@ public class EmailNotificationDeliveryTest {
                 .when(mailSender).send(any(SimpleMailMessage.class));
 
         when(repository.findByEventKey(anyString())).thenReturn(Optional.empty());
-        when(repository.saveAndFlush(any(Notification.class))).thenAnswer(i -> i.getArgument(0));
+        lenient().when(repository.saveAndFlush(any(Notification.class))).thenAnswer(i -> i.getArgument(0));
 
         assertThrows(IllegalStateException.class, () -> deliveryService.deliverBookingConfirmation(event));
 

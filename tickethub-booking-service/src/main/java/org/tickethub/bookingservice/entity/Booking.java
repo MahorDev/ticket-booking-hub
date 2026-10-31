@@ -65,6 +65,9 @@ public class Booking {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
+    @Column(name = "aggregate_version", nullable = false)
+    private Long aggregateVersion = 1L;
+
     @OneToMany(mappedBy = "booking", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("id ASC")
     private List<BookingItem> items = new ArrayList<>();
@@ -105,6 +108,7 @@ public class Booking {
     public LocalDateTime getCreatedAt() { return createdAt; }
     public LocalDateTime getExpiresAt() { return expiresAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
+    public Long getAggregateVersion() { return aggregateVersion; }
     public List<BookingItem> getItems() { return items; }
 
     public void setUserId(Long userId) { this.userId = userId; }
@@ -120,4 +124,5 @@ public class Booking {
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public void setExpiresAt(LocalDateTime expiresAt) { this.expiresAt = expiresAt; }
     public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
+    public void setAggregateVersion(Long aggregateVersion) { this.aggregateVersion = aggregateVersion; }
 }

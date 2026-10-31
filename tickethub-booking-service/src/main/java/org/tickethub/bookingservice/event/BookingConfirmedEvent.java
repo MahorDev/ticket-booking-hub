@@ -13,6 +13,12 @@ import java.util.List;
 
 @Data @Builder @NoArgsConstructor @AllArgsConstructor
 public class BookingConfirmedEvent {
+    // Event metadata for Saga & Inbox Idempotency
+    private String eventMessageId;
+    private String eventType;
+    private Long aggregateVersion;
+    private LocalDateTime eventTimestamp;
+
     private Long bookingId;
     private String bookingReference;
     private Long userId;

@@ -34,4 +34,6 @@ public interface PaymentService {
     default void processWebhook(String payload, String signature, String headerEventId) {
         processWebhook(payload, signature);
     }
+
+    PaymentResponse resolveUnknownPayment(Long paymentId);
 }
